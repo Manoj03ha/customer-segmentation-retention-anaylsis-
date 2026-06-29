@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Customer Segmentation Dashboard</title>
+
+<!-- Libraries -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+
+<style>
+body {
+    font-family: 'Segoe UI';
+    background: linear-gradient(to right, #eef2f3, #dfe9f3);
+    margin: 0;
+}
+
+/* Header */
+.header {
+    background: #2f3542;
+    color: white;
+    padding: 15px;
+    text-align: center;
+}
+
+/* Controls */
+.controls {
+    display: flex;
+    justify-content: space-around;
+    padding: 15px;
+    flex-wrap: wrap;
+}
+
+/* Cards */
+.cards {
+    display: flex;
+    justify-content: space-around;
+    flex-wrap: wrap;
+}
+
+.card {
+    background: white;
+    padding: 15px;
+    border-radius: 12px;
+    width: 180px;
+    margin: 10px;
+    text-align: center;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+
+/* Charts */
+.charts {
+    display: flex;
+    justify-content: space-around;
+    flex-wrap: wrap;
+}
+
+canvas {
+    background: white;
+    border-radius: 10px;
+    margin: 15px;
+    padding: 10px;
+}
+
+/* Table */
+table {
+    width: 95%;
+    margin: auto;
+    border-collapse: collapse;
+    background: white;
+}
+
+th, td {
+    padding: 10px;
+    text-align: center;
+    border-bottom: 1px solid #ddd;
+}
+
+th {
+    background: #2f3542;
+    color: white;
+}
+
+input, select {
+    padding: 8px;
+    border-radius: 5px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="header">
+    <h1>📊 Customer Segmentation & Retention Dashboard</h1>
+</div>
+
+<div class="controls">
+    <input type="file" id="fileUpload">
+    <input type="text" id="search" placeholder="Search Customer ID">
+
+    <select id="locationFilter">
+        <option value="All">All Locations</option>
+    </select>
+
+    <select id="churnFilter">
+        <option value="All">All Customers</option>
+        <option value="Yes">Churned</option>
+        <option value="No">Retained</option>
+    </select>
+</div>
+
+<!-- KPI Cards -->
+<div class="cards">
+    <div class="card"><h3>Total</h3><p id="total">0</p></div>
+    <div class="card"><h3>Churn %</h3><p id="churn">0%</p></div>
+    <div class="card"><h3>Avg Spend</h3><p id="spend">₹0</p></div>
+    <div class="card"><h3>Satisfaction</h3><p id="satisfaction">0</p></div>
+</div>
+
+<!-- Charts -->
+<div class="charts">
+    <canvas id="churnChart"></canvas>
+    <canvas id="categoryChart"></canvas>
+    <canvas id="recencyChart"></canvas>
+</div>
+
+<!-- Table -->
+<table>
+<thead>
+<tr>
+<th>ID</th><th>Location</th><th>Spend</th><th>Tenure</th><th>Satisfaction</th><th>Churn</th>
+</tr>
+</thead>
+<tbody id="tableBody"></tbody>
+</table>
+
+<script>
+
+let originalData = [];
+let churnChart, categoryChart, recencyChart;
+
+// Events
+document.getElementById('fileUpload').addEventListener('change', loadFile);
+document.getElementById('search').addEventListener('input', applyFilters);
+document.getElementById('locationFilter').addEventListener('change', applyFilters);
+document.getElementById('churnFilter').addEventListener('change', applyFilters);
+
+// Load Excel
+function loadFile(e) {
+    const reader = new FileReader();
+
+    reader.onload = function(evt) {
+        const data = new Uint8Array(evt.target.result);
+        const workbook = XLSX.read(data, {type:'array'});
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        originalData = XLSX.utils.sheet_to_json(sheet);
+
+        if(originalData.length === 0){
+            alert("Invalid or empty file!");
+            return;
+        }
+
+        populateFilters();
+        applyFilters();
+    };
+
+    reader.readAsArrayBuffer(e.target.files[0]);
+}
+
+// Populate location filter
+function populateFilters() {
+    let select = document.getElementById('locationFilter');
+    select.innerHTML = '<option value="All">All Locations</option>';
+
+    let locations = [...new Set(originalData.map(d => d.Location))];
+
+    locations.forEach(loc => {
+        let option = document.createElement('option');
+        option.value = loc;
+        option.textContent = loc;
+        select.appendChild(option);
+    });
+}
+
+// Apply filters
+function applyFilters() {
+    let search = document.getElementById('search').value.toLowerCase();
+    let location = document.getElementById('locationFilter').value;
+    let churn = document.getElementById('churnFilter').value;
+
+    let data = originalData.filter(d =>
+        (location === "All" || d.Location === location) &&
+        (churn === "All" || d.Churn === churn) &&
+        (d.Customer_ID && d.Customer_ID.toLowerCase().includes(search))
+    );
+
+    updateDashboard(data);
+}
+
+// Update dashboard
+function updateDashboard(data) {
+
+    if(data.length === 0){
+        document.getElementById('total').innerText = 0;
+        document.getElementById('churn').innerText = "0%";
+        document.getElementById('spend').innerText = "₹0";
+        document.getElementById('satisfaction').innerText = "0";
+        document.getElementById('tableBody').innerHTML =
+            "<tr><td colspan='6'>No Data</td></tr>";
+        return;
+    }
+
+    let total = data.length;
+    let churnYes = data.filter(d => d.Churn === "Yes").length;
+
+    let avgSpend = data.reduce((s,d)=>s+Number(d.Monthly_Spend),0)/total;
+    let avgSat = data.reduce((s,d)=>s+Number(d.Customer_Satisfaction),0)/total;
+
+    document.getElementById('total').innerText = total;
+    document.getElementById('churn').innerText = ((churnYes/total)*100).toFixed(1)+"%";
+    document.getElementById('spend').innerText = "₹"+avgSpend.toFixed(0);
+    document.getElementById('satisfaction').innerText = avgSat.toFixed(1);
+
+    updateTable(data);
+    updateCharts(data, churnYes);
+}
+
+// Table
+function updateTable(data) {
+    let body = document.getElementById('tableBody');
+    body.innerHTML = "";
+
+    data.slice(0,20).forEach(d => {
+        body.innerHTML += `
+        <tr>
+            <td>${d.Customer_ID}</td>
+            <td>${d.Location}</td>
+            <td>${d.Monthly_Spend}</td>
+            <td>${d.Tenure_Months}</td>
+            <td>${d.Customer_Satisfaction}</td>
+            <td>${d.Churn}</td>
+        </tr>`;
+    });
+}
+
+// Charts
+function updateCharts(data, churnYes) {
+
+    if(churnChart) churnChart.destroy();
+    if(categoryChart) categoryChart.destroy();
+    if(recencyChart) recencyChart.destroy();
+
+    // Churn
+    churnChart = new Chart(document.getElementById('churnChart'), {
+        type: 'doughnut',
+        data: {
+            labels: ["Churned","Retained"],
+            datasets: [{data:[churnYes, data.length - churnYes]}]
+        }
+    });
+
+    // Category
+    let cat = {};
+    data.forEach(d => {
+        cat[d.Product_Category] = (cat[d.Product_Category]||0)+Number(d.Monthly_Spend);
+    });
+
+    categoryChart = new Chart(document.getElementById('categoryChart'), {
+        type: 'bar',
+        data: {
+            labels: Object.keys(cat),
+            datasets: [{label:"Spend", data:Object.values(cat)}]
+        }
+    });
+
+    // Recency
+    let recency = {"0-10":0,"11-30":0,"31-60":0,"60+":0};
+
+    data.forEach(d => {
+        let days = Number(d.Last_Purchase_Days_Ago);
+        if(days <=10) recency["0-10"]++;
+        else if(days <=30) recency["11-30"]++;
+        else if(days <=60) recency["31-60"]++;
+        else recency["60+"]++;
+    });
+
+    recencyChart = new Chart(document.getElementById('recencyChart'), {
+        type: 'bar',
+        data: {
+            labels: Object.keys(recency),
+            datasets: [{label:"Customers", data:Object.values(recency)}]
+        }
+    });
+}
+
+</script>
+
+</body>
+</html>
